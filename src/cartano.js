@@ -5,6 +5,7 @@ var mapbox = require('mapbox');
 var $ = require('jquery');
 require('leaflet-draw');
 require('leaflet-draw-drag');
+require('leaflet-featuregroup-subgroup');
 require('leaflet-markercluster');
 
 
@@ -117,6 +118,25 @@ function Location(lat, lng, estimated) {
 Location.prototype = new leaflet.LatLng(0, 0);
 
 
+leaflet.Control.EstimatedLayerControl = leaflet.Control.Layers.extend({
+	_onInputClick: function(Layer, name) {
+		var map, self = this;
+
+		map = this._map;
+		//Trigger a click event on the map to de-spiderfy any clusterGroups that are spiderfied.
+		map.fireEvent('click');
+		//FIXME: This is a bit of a hack. Spiderfication and de-spiderfication animations take 200ms. If you remove a layer
+		//during the de-spiderfication process, the spider legs get stuck on the page and future attempts
+		//to add a clustergroup bug out and end up adding several smaller groups along the bugged remaining lines.
+		//MarkerCluster fires an event on spiderfication end, but does not fire one on unspiderfication, so there's
+		//nothing to listen for. My workaround was to manually wait the 200ms and then do the onInputClick call.
+		setTimeout(function() {
+			leaflet.Control.Layers.prototype._onInputClick.call(self, Layer, name);
+		}, 200);
+	}
+});
+
+
 /**
  *
  * @constructor
@@ -177,7 +197,9 @@ function Map(id, options) {
 	map.featureLayer.setGeoJSON([]);
 
 	// Create the appropriate feature groups (i.e. "true" layers)
-	layers.markers = new leaflet.FeatureGroup().addTo(map);
+	layers.markers = {
+		actual: new leaflet.FeatureGroup().addTo(map)
+	};
 	layers.path = new leaflet.FeatureGroup();
 
 	// Create the path and add it to the appropriate layer.
@@ -200,15 +222,17 @@ function Map(id, options) {
 			weight: 1.5,
 			color: '#222'
 		}
-	}).addTo(layers.markers);
+	}).addTo(layers.markers.actual);
+
+	layers.markers.estimated = new leaflet.featureGroup.subGroup(markers);
+	//layers.valid = new leaflet.featureGroup.subGroup(markers);
 
 	// If the layer control option is set to true, add an instantiated control to toggle the path.
 	if (options.layerControl === true) {
-		controls.layer = new leaflet.Control.Layers(null, {
-			Path: layers.path
+		controls.layer = new leaflet.Control.EstimatedLayerControl(null, {
+			'Estimated Locations': layers.markers.estimated
+			//Path: layers.path
 		}).addTo(map);
-
-		layers.path.addTo(map);
 	}
 
 	// If the zoom control option is set to `true` and zoom hasn't been disabled, add an instantiated control to set the
@@ -350,7 +374,7 @@ function Map(id, options) {
 	}
 
 	// Bind event listeners to map components.
-	layers.markers.on('click', _Listener$markerClick);
+	layers.markers.actual.on('click', _Listener$markerClick);
 
 	map.on('moveend', function(e) {
 		$(element).trigger({
@@ -407,6 +431,7 @@ Map.prototype = {
 	 * @returns {Map} Chainable Map instance `this`.
 	 */
 	clearData: function Map$clearData() {
+		this.layers.markers.estimated.clearLayers();
 		this.markers.clearLayers();
 		this.features.path.setLatLngs([]);
 
@@ -419,17 +444,38 @@ Map.prototype = {
 	 * @returns {Promise}
 	 */
 	addData: function Map$addData(data, callback) {
-		var i, deferred, marker, markers;
+		var i, deferred, estimatedMarkers, marker, showEstimated, actualMarkers;
 
-		markers = [];
+		estimatedMarkers = [];
+		actualMarkers = [];
 
 		for (i = 0; i < data.length; i++) {
 			marker = callback(data[i], i);
 
-			markers.push(marker);
+			if (marker.options.estimated) {
+				estimatedMarkers.push(marker);
+			}
+			else {
+				actualMarkers.push(marker);
+			}
 		}
 
-		this.markers.addLayers(markers);
+		//Detects whether or not the Estimated Locations layer control is checked or not.
+		showEstimated = this.object.hasLayer(this.layers.markers.estimated);
+
+		this.object.removeLayer(this.layers.markers.estimated);
+
+		for (i = 0; i < estimatedMarkers.length; i++) {
+			this.layers.markers.estimated.addLayer(estimatedMarkers[i]);
+		}
+
+		//If the user did not have the Estimated Locations layer control checked, then do not show any new
+		//events with estimated locations.
+		if (showEstimated) {
+			this.layers.markers.estimated.addTo(this.object);
+		}
+
+		this.markers.addLayers(actualMarkers);
 
 		deferred = new Deferred();
 		deferred.resolve();
@@ -443,6 +489,7 @@ Map.prototype = {
 	 * @param {Function} callback
 	 */
 	eachMarker: function Map$eachMarker(callback) {
+		this.layers.markers.estimated.eachLayer(callback);
 		this.markers.eachLayer(callback);
 	},
 
