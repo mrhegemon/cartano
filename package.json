@@ -1,6 +1,6 @@
 {
   "name": "cartano",
-  "version": "0.1.0",
+  "version": "0.1.0-dev",
   "repository": "https://github.com/bitscooplabs/cartano.git",
   "private": true,
   "dependencies": {

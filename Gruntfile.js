@@ -13,7 +13,7 @@ module.exports = function(grunt) {
 					name: '<%= package.name %>',
 					exports: 'src/cartano'
 				},
-				dest: 'dist/<%= package.name %>.js'
+				dest: 'dist/<%= package.version %>/<%= package.name %>.<%= package.version %>.js'
 			}
 		},
 
@@ -89,7 +89,7 @@ module.exports = function(grunt) {
 					cwd: 'dist'
 				},
 				files: {
-					'dist/<%= package.name %>-<%= package.version %>.min.js': 'dist/<%= package.name %>.js'
+					'dist/<%= package.version %>/<%= package.name %>.<%= package.version %>.min.js': 'dist/<%= package.version %>/<%= package.name %>.<%= package.version %>.js'
 				}
 			}
 		},
